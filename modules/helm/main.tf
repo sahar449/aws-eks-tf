@@ -220,7 +220,7 @@ resource "helm_release" "external_dns" {
 
 resource "helm_release" "flask_app" {
   name       = "flask-app"
-  chart      = "./flask"
+  chart      = "./flask-app"
   namespace  = "default"
 
   set {
