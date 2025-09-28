@@ -13,8 +13,8 @@ on:
           - destroy
 
 permissions:
-  id-token: write  
-  contents: read  
+  id-token: write
+  contents: read
 
 env:
   aws_region: us-west-2
@@ -43,26 +43,43 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Apply or Destroy
+      - name: Terraform Apply ECR Module
+        if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          if [ "${{ github.event.inputs.action }}" = "apply" ]; then
-            echo "🌱 Applying ECR module first..."
-            terraform apply -target=module.ecr -auto-approve
+          set -e
+          terraform init
+          terraform apply -target=module.ecr -auto-approve
 
-            echo "🐳 Building and pushing Docker image..."
-            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-            aws ecr get-login-password --region ${{ env.aws_region }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com
-            docker build -t ${{ env.ecr_name }}:${{ env.image_tag }} ./flask-app
-            docker tag ${{ env.ecr_name }}:${{ env.image_tag }} $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
-            docker push $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
+      - name: Build, Tag and Push Docker Image
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          set -e
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region ${{ env.aws_region }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com
+          docker build -t ${{ env.ecr_name }}:${{ env.image_tag }} ./flask-app
+          docker tag ${{ env.ecr_name }}:${{ env.image_tag }} $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
+          docker push $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
 
-            echo "🚀 Applying remaining Terraform modules..."
-            terraform apply -auto-approve
-          else
-            echo "🛑 Destroying modules in reverse dependency order..."
+      - name: Terraform Apply Remaining Modules
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          set -e
+          if ! terraform apply -auto-approve; then
+            echo "❌ Terraform apply failed. Destroying all modules in reverse order..."
             terraform destroy -target=module.helm -auto-approve || echo "Helm destroy failed"
             terraform destroy -target=module.eks -auto-approve || echo "EKS destroy failed"
             terraform destroy -target=module.vpc -auto-approve || echo "VPC destroy failed"
             terraform destroy -target=module.ecr -auto-approve || echo "ECR destroy failed"
-            echo "✅ All specified modules destroyed"
+            exit 1
           fi
+
+      - name: Terraform Destroy All Modules
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          set -e
+          echo "🛑 Destroying modules in reverse dependency order..."
+          terraform destroy -target=module.helm -auto-approve || echo "Helm destroy failed"
+          terraform destroy -target=module.eks -auto-approve || echo "EKS destroy failed"
+          terraform destroy -target=module.vpc -auto-approve || echo "VPC destroy failed"
+          terraform destroy -target=module.ecr -auto-approve || echo "ECR destroy failed"
+          echo "✅ All specified modules destroyed"
