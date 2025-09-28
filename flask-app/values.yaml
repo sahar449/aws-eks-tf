@@ -1,0 +1,14 @@
+app:
+  name: flask-app
+  port: 5000
+
+image:
+  repository: 
+  tag: latest
+
+service:
+  port: 5000
+
+ingress:
+  host: saharbittman.com
+  scheme: internet-facing
