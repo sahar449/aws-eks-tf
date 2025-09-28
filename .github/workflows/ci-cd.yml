@@ -19,7 +19,7 @@ permissions:
 env:
   aws_region: us-west-2
   image_tag: latest
-  ecr_name: my-app
+  repo_name: eksdemo
 
 jobs:
   terraform:
@@ -56,9 +56,9 @@ jobs:
           set -e
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           aws ecr get-login-password --region ${{ env.aws_region }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com
-          docker build -t ${{ env.ecr_name }}:${{ env.image_tag }} ./flask-app
-          docker tag ${{ env.ecr_name }}:${{ env.image_tag }} $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
-          docker push $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
+          docker build -t ${{ env.repo_name }}:${{ env.image_tag }} ./flask-app
+          docker tag ${{ env.repo_name }}:${{ env.image_tag }} $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.repo_name }}:${{ env.image_tag }}
+          docker push $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.repo_name }}:${{ env.image_tag }}
 
       - name: Terraform Apply Remaining Modules
         if: ${{ github.event.inputs.action == 'apply' }}
