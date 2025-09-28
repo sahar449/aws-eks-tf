@@ -57,8 +57,8 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           aws ecr get-login-password --region ${{ env.aws_region }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com
           docker build -t ${{ env.repo_name }}:${{ env.image_tag }} ./flask-app
-          docker tag ${{ env.repo_name }}:${{ env.image_tag }} $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.repo_name }}:${{ env.image_tag }}
-          docker push $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.repo_name }}:${{ env.image_tag }}
+          docker tag eksdemo:latest $ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/eksdemo:latest
+          docker push $ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/eksdemo:latest
 
       - name: Terraform Apply Remaining Modules
         if: ${{ github.event.inputs.action == 'apply' }}
