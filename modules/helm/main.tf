@@ -225,7 +225,7 @@ resource "helm_release" "flask_app" {
 
   set {
     name  = "image.repository"
-    value = module.ecr.repository_url
+    value = var.repo_name
   }
 
   set {
@@ -235,8 +235,7 @@ resource "helm_release" "flask_app" {
 
   depends_on = [
     helm_release.aws_load_balancer_controller,
-    helm_release.external_dns,
-    module.ecr
+    helm_release.external_dns
   ]
 }
 

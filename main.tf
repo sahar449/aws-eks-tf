@@ -33,9 +33,10 @@ module "helm" {
   region            = var.region
   vpc_id            = module.eks.eks_vpc_id
   ssl_certificate_validation_resource = module.ssl.ssl_certificate_validation_resource
-
+  repo_name = module.ecr.repo_name
   depends_on = [module.ecr]
 }
+
 
 module "ssl" {
   source = "./modules/ssl"

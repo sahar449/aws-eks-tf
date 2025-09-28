@@ -1,4 +1,4 @@
-output "repository_url" {
+output "repo_name" {
   description = "ECR repository URL"
   value       = aws_ecr_repository.this.repository_url
 }

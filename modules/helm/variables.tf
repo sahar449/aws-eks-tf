@@ -27,3 +27,8 @@ variable "ssl_certificate_validation_resource" {
   description = "The SSL certificate validation resource to depend on"
   type        = any
 }
+
+variable "repo_name" {
+  type        = string
+  description = "The URL of the ECR repository"
+}
