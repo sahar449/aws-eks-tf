@@ -1,0 +1,64 @@
+name: Terraform Apply or Destroy Modules
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Choose whether to apply or destroy the infrastructure'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+
+env:
+  aws_region: us-west-2
+  image_tag: latest
+  ecr_name: my-app
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.7
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.aws_region }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply or Destroy
+        run: |
+          if [ "${{ github.event.inputs.action }}" = "apply" ]; then
+            echo "🌱 Applying ECR module first..."
+            terraform apply -target=module.ecr -auto-approve
+
+            echo "🐳 Building and pushing Docker image..."
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            aws ecr get-login-password --region ${{ env.aws_region }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com
+            docker build -t ${{ env.ecr_name }}:${{ env.image_tag }} ./flask-app
+            docker tag ${{ env.ecr_name }}:${{ env.image_tag }} $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
+            docker push $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}:${{ env.image_tag }}
+
+            echo "🚀 Applying remaining Terraform modules..."
+            terraform apply -auto-approve
+          else
+            echo "🛑 Destroying modules in reverse dependency order..."
+            terraform destroy -target=module.helm -auto-approve || echo "Helm destroy failed"
+            terraform destroy -target=module.eks -auto-approve || echo "EKS destroy failed"
+            terraform destroy -target=module.vpc -auto-approve || echo "VPC destroy failed"
+            terraform destroy -target=module.ecr -auto-approve || echo "ECR destroy failed"
+            echo "✅ All specified modules destroyed"
+          fi

@@ -1,0 +1,116 @@
+name: CI/CD Pipeline with Trivy, Terraform and Cosign
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_or_destroy:
+        description: 'Choose whether to apply or destroy the infrastructure'
+        required: true
+        default: 'apply' 
+        type: choice
+        options:
+          - apply
+          - destroy
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  image_tag: latest
+  aws_region: us-west-2       
+  cluster_name: eksdemo-cluster    
+  ecr_name: my-app            
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies (terraform, curl, cosign)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl gnupg software-properties-common lsb-release
+
+          # Install Terraform
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update && sudo apt-get install -y terraform
+
+          # # Install Cosign
+          # COSIGN_VERSION=$(curl -s https://api.github.com/repos/sigstore/cosign/releases/latest | grep tag_name | cut -d '"' -f 4)
+          # curl -Lo cosign https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64
+          # chmod +x cosign
+          # sudo mv cosign /usr/local/bin/cosign
+
+          # # Install yq (v4+)
+          # YQ_BINARY="yq_linux_amd64"
+          # YQ_VERSION=$(curl -s https://api.github.com/repos/mikefarah/yq/releases/latest | grep tag_name | cut -d '"' -f 4)
+          # curl -Lo yq https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${YQ_BINARY}
+          # chmod +x yq
+          # sudo mv yq /usr/local/bin/yq
+
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ secrets.full_app }}
+          role-session-name: github-oidc-session
+          aws-region: ${{ env.aws_region }}
+
+      # - name: Run Trivy Full Scan
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     scan-type: 'fs'
+      #     scan-ref: '.'
+      #     vuln-type: 'os,library'
+      #     skip-dirs: 'node_modules,.git'
+      #     scanners: 'vuln,config,secret'
+      #     exit-code: '0'
+      #     ignore-unfixed: true
+      #     format: 'table'
+
+      # - name: Write Cosign Private Key
+      #   run: echo "${{ secrets.COSIGN_PRIVATE }}" | base64 -d > cosign.key
+
+      # - name: Cosign Sign Image (Keyless)
+      #   env:
+      #     AWS_REGION: ${{ env.aws_region }}
+      #     IMAGE_NAME: ${{ env.ecr_name }}
+      #     IMAGE_TAG: ${{ env.image_tag }}
+      #   run: |
+      #     ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      #     REPO_URI="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME"
+      #     cosign sign --yes $REPO_URI:$IMAGE_TAG
+
+      # - name: Verify Cosign Signature (Keyless)
+      #   env:
+      #     AWS_REGION: ${{ env.aws_region }}
+      #     IMAGE_NAME: ${{ env.ecr_name }}
+      #     IMAGE_TAG: ${{ env.image_tag }}
+      #   run: |
+      #     ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      #     REPO_URI="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME"
+      #     cosign verify --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" $REPO_URI:$IMAGE_TAG
+      #     echo "✅ Cosign signature verified!"
+
+      - name: Terraform Init and Apply/Destroy
+        run: |
+          terraform init
+          terraform ${{ github.event.inputs.apply_or_destroy || 'apply' }} -auto-approve
+
+      - name: Helm Upgrade Install
+        env:
+          cluster_name: ${{ env.cluster_name }}
+          aws_region: ${{ env.aws_region }}
+          image_tag: ${{ env.image_tag }}
+          ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          REPO_URI: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.aws_region }}.amazonaws.com/${{ env.ecr_name }}
+        run: |
+          aws eks --region "$aws_region" update-kubeconfig --name "$cluster_name"
+          helm upgrade --install flask ./flask-app \
+            --set image.repository="$REPO_URI" \
+            --set image.tag="$image_tag"
