@@ -12,6 +12,10 @@ on:
           - apply
           - destroy
 
+permissions:
+  id-token: write  
+  contents: read  
+
 env:
   aws_region: us-west-2
   image_tag: latest
