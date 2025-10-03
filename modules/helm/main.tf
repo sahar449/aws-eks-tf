@@ -44,6 +44,21 @@ resource "aws_iam_role_policy_attachment" "lb_controller_attach" {
   policy_arn = data.aws_iam_policy.lb_controller_policy.arn
 }
 
+# 2.1.5 Create Service Account for Load Balancer Controller
+resource "kubernetes_service_account" "lb_controller_sa" {
+  metadata {
+    name      = "aws-load-balancer-controller"
+    namespace = "kube-system"
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.lb_controller_role.arn
+    }
+  }
+
+  depends_on = [
+    aws_iam_role.lb_controller_role
+  ]
+}
+
 # 2.2 Load Balancer Controller Helm Release
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
@@ -58,18 +73,8 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 
   set {
-    name  = "serviceAccount.create"
-    value = "true"
-  }
-
-  set {
     name  = "serviceAccount.name"
     value = "aws-load-balancer-controller"
-  }
-
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = aws_iam_role.lb_controller_role.arn
   }
 
   set {
@@ -83,7 +88,7 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 
   depends_on = [
-    aws_iam_role.lb_controller_role
+    kubernetes_service_account.lb_controller_sa
   ]
 }
 
@@ -144,6 +149,21 @@ resource "aws_iam_role_policy_attachment" "dns_controller_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
 }
 
+# 3.1.5 Create Service Account for External DNS
+resource "kubernetes_service_account" "external_dns_sa" {
+  metadata {
+    name      = "external-dns"
+    namespace = "kube-system"
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.external_dns_role.arn
+    }
+  }
+
+  depends_on = [
+    aws_iam_role.external_dns_role
+  ]
+}
+
 # 3.2 External DNS Helm Release 
 resource "helm_release" "external_dns" {
   name       = "external-dns"
@@ -196,18 +216,8 @@ resource "helm_release" "external_dns" {
   }
 
   set {
-    name  = "serviceAccount.create"
-    value = "true"
-  }
-
-  set {
     name  = "serviceAccount.name"
     value = "external-dns"
-  }
-
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = aws_iam_role.external_dns_role.arn
   }
 
   set {
@@ -243,7 +253,7 @@ resource "helm_release" "external_dns" {
 
   depends_on = [
     helm_release.aws_load_balancer_controller,
-    aws_iam_role.external_dns_role,
+    kubernetes_service_account.external_dns_sa,
     aws_iam_role_policy_attachment.external_dns_attach,
     aws_iam_role_policy_attachment.dns_controller_policy
   ]
@@ -273,4 +283,3 @@ resource "helm_release" "flask_app" {
     helm_release.external_dns
   ]
 }
-
