@@ -44,7 +44,7 @@ resource "aws_iam_role_policy_attachment" "lb_controller_attach" {
   policy_arn = data.aws_iam_policy.lb_controller_policy.arn
 }
 
-# 2.2 Load Balancer Controller Helm Release - יוצר service account אוטומטית
+# 2.2 Load Balancer Controller Helm Release
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
@@ -152,6 +152,14 @@ resource "helm_release" "external_dns" {
   namespace  = "kube-system"
   version    = "6.33.0"
 
+  # Timeout and reliability settings
+  timeout          = 600
+  wait             = true
+  wait_for_jobs    = true
+  atomic           = true
+  cleanup_on_fail  = true
+  create_namespace = false  # kube-system already exists
+
   set {
     name  = "provider"
     value = "aws"
@@ -169,12 +177,17 @@ resource "helm_release" "external_dns" {
 
   set {
     name  = "txtOwnerId"
-    value = var.cluster_name
+    value = "${var.cluster_name}-${random_string.suffix.result}"
+  }
+
+  set {
+    name  = "txt-prefix"
+    value = "ext-dns-"
   }
 
   set {
     name  = "policy"
-    value = "upsert-only"
+    value = "sync" 
   }
 
   set {
@@ -207,12 +220,34 @@ resource "helm_release" "external_dns" {
     value = "ingress"
   }
 
+  # Performance and reliability improvements
+  set {
+    name  = "image.pullPolicy"
+    value = "IfNotPresent"
+  }
+
+  set {
+    name  = "logLevel"
+    value = "debug"  # Helpful for troubleshooting
+  }
+
+  set {
+    name  = "resources.requests.memory"
+    value = "50Mi"
+  }
+
+  set {
+    name  = "resources.requests.cpu"
+    value = "50m"
+  }
+
   depends_on = [
     helm_release.aws_load_balancer_controller,
-    aws_iam_role.external_dns_role
+    aws_iam_role.external_dns_role,
+    aws_iam_role_policy_attachment.external_dns_attach,
+    aws_iam_role_policy_attachment.dns_controller_policy
   ]
 }
-
 
 ###################################
 # 4. Flask App Helm Release

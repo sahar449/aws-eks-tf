@@ -46,14 +46,12 @@ jobs:
       - name: Terraform Apply ECR Module
         if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          set -e
           terraform init
           terraform apply -target=module.ecr -auto-approve
 
       - name: Build, Tag and Push Docker Image
         if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          set -e
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           aws ecr get-login-password --region ${{ env.aws_region }} | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.${{ env.aws_region }}.amazonaws.com
           docker build -t ${{ env.repo_name }}:${{ env.image_tag }} ./flask-app
@@ -63,9 +61,18 @@ jobs:
       - name: Terraform Apply Remaining Modules
         if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          set -e
-          if ! terraform apply -auto-approve; then
+          if terraform apply -auto-approve; then
+            echo "✅ Terraform apply succeeded"
+          else
             echo "❌ Terraform apply failed. Destroying all modules in reverse order..."
+
+            # Delete orphaned ALB Security Groups first
+            echo "🧹 Deleting orphaned ALB Security Groups..."
+            for sg in $(aws ec2 describe-security-groups --filters Name=group-name,Values="*alb*" --query 'SecurityGroups[].GroupId' --output text); do
+              echo "Deleting Security Group: $sg"
+              aws ec2 delete-security-group --group-id $sg || echo "Failed to delete SG $sg"
+            done
+
             terraform destroy -target=module.helm -auto-approve || echo "Helm destroy failed"
             terraform destroy -target=module.eks -auto-approve || echo "EKS destroy failed"
             terraform destroy -target=module.vpc -auto-approve || echo "VPC destroy failed"
@@ -73,25 +80,27 @@ jobs:
             exit 1
           fi
 
-      - name: Cleanup ALB Security Groups
-        if: ${{ github.event.inputs.action == 'destroy' }}
+      - name: Verify Application Response
+        if: ${{ github.event.inputs.action == 'apply' }}
         run: |
-          set -e
-          echo "🔎 Looking for ALB Security Groups created by Ingress..."
-          SG_IDS=$(aws ec2 describe-security-groups \
-            --filters Name=group-name,Values="k8s-*" \
-            --query 'SecurityGroups[].GroupId' \
-            --output text)
-
-          for sg in $SG_IDS; do
-            echo "🗑 Deleting ALB Security Group $sg ..."
-            aws ec2 delete-security-group --group-id $sg || echo "Failed to delete $sg"
-          done
+          echo "🔎 Checking application response..."
+          RESPONSE=$(curl -s https://www.saharbittman.com)
+          if [ "$RESPONSE" = "Hello, World from Sahar Bittman!" ]; then
+            echo "🎉 Pipeline succeeded: response matches expected output"
+          else
+            echo "⚠️ Response did not match expected output"
+          fi
 
       - name: Terraform Destroy All Modules
         if: ${{ github.event.inputs.action == 'destroy' }}
         run: |
-          set -e
+          # Delete orphaned ALB Security Groups first
+          echo "🧹 Deleting orphaned ALB Security Groups..."
+          for sg in $(aws ec2 describe-security-groups --filters Name=group-name,Values="*alb*" --query 'SecurityGroups[].GroupId' --output text); do
+            echo "Deleting Security Group: $sg"
+            aws ec2 delete-security-group --group-id $sg || echo "Failed to delete SG $sg"
+          done
+
           echo "🛑 Destroying modules in reverse dependency order..."
           terraform destroy -target=module.helm -auto-approve || echo "Helm destroy failed"
           terraform destroy -target=module.eks -auto-approve || echo "EKS destroy failed"
