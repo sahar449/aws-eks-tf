@@ -44,21 +44,6 @@ resource "aws_iam_role_policy_attachment" "lb_controller_attach" {
   policy_arn = data.aws_iam_policy.lb_controller_policy.arn
 }
 
-# 2.1.5 Create Service Account for Load Balancer Controller
-resource "kubernetes_service_account" "lb_controller_sa" {
-  metadata {
-    name      = "aws-load-balancer-controller"
-    namespace = "kube-system"
-    annotations = {
-      "eks.amazonaws.com/role-arn" = aws_iam_role.lb_controller_role.arn
-    }
-  }
-
-  depends_on = [
-    aws_iam_role.lb_controller_role
-  ]
-}
-
 # 2.2 Load Balancer Controller Helm Release
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
@@ -78,6 +63,11 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 
   set {
+    name  = "serviceAccount.create"
+    value = true
+  }
+
+  set {
     name  = "region"
     value = var.region
   }
@@ -87,9 +77,10 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = var.vpc_id
   }
 
-  depends_on = [
-    kubernetes_service_account.lb_controller_sa
-  ]
+  set {
+    name  = "serviceAccount.annotations.eks.amazonaws.com/role-arn"
+    value = aws_iam_role.lb_controller_role.arn
+  }
 }
 
 ###################################
@@ -149,21 +140,6 @@ resource "aws_iam_role_policy_attachment" "dns_controller_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
 }
 
-# 3.1.5 Create Service Account for External DNS
-resource "kubernetes_service_account" "external_dns_sa" {
-  metadata {
-    name      = "external-dns"
-    namespace = "kube-system"
-    annotations = {
-      "eks.amazonaws.com/role-arn" = aws_iam_role.external_dns_role.arn
-    }
-  }
-
-  depends_on = [
-    aws_iam_role.external_dns_role
-  ]
-}
-
 # 3.2 External DNS Helm Release 
 resource "helm_release" "external_dns" {
   name       = "external-dns"
@@ -172,13 +148,12 @@ resource "helm_release" "external_dns" {
   namespace  = "kube-system"
   version    = "6.33.0"
 
-  # Timeout and reliability settings
   timeout          = 600
   wait             = true
   wait_for_jobs    = true
   atomic           = true
   cleanup_on_fail  = true
-  create_namespace = false  # kube-system already exists
+  create_namespace = false
 
   set {
     name  = "provider"
@@ -221,6 +196,16 @@ resource "helm_release" "external_dns" {
   }
 
   set {
+    name  = "serviceAccount.create"
+    value = true
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks.amazonaws.com/role-arn"
+    value = aws_iam_role.external_dns_role.arn
+  }
+
+  set {
     name  = "sources[0]"
     value = "service"
   }
@@ -230,30 +215,8 @@ resource "helm_release" "external_dns" {
     value = "ingress"
   }
 
-  # Performance and reliability improvements
-  set {
-    name  = "image.pullPolicy"
-    value = "IfNotPresent"
-  }
-
-  set {
-    name  = "logLevel"
-    value = "debug"  # Helpful for troubleshooting
-  }
-
-  set {
-    name  = "resources.requests.memory"
-    value = "50Mi"
-  }
-
-  set {
-    name  = "resources.requests.cpu"
-    value = "50m"
-  }
-
   depends_on = [
     helm_release.aws_load_balancer_controller,
-    kubernetes_service_account.external_dns_sa,
     aws_iam_role_policy_attachment.external_dns_attach,
     aws_iam_role_policy_attachment.dns_controller_policy
   ]
