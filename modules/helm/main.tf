@@ -239,24 +239,3 @@ resource "helm_release" "flask_app" {
   ]
 }
 
-
-# resource "helm_release" "flask_app" {
-#   name       = "flask-app"
-#   chart      = "./flask-app"
-#   namespace  = "default"
-
-#   set {
-#     name  = "image.repository"
-#     value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com/test"
-#   }
-
-#   set {
-#     name  = "image.tag"
-#     value = "latest"
-#   }
-
-#   depends_on = [
-#     helm_release.aws_load_balancer_controller,
-#     helm_release.external_dns
-#   ]
-# }
